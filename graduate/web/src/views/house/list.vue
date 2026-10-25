@@ -7,23 +7,42 @@
       </div>
     </template>
 
-    <!-- 查询区：点「查询」才请求，不做输入即查（设计方案 §2.4） -->
-    <el-form inline :model="query" class="search-form" @submit.prevent>
-      <el-form-item label="关键词">
-        <el-input v-model="query.keyword" placeholder="标题 / 地址" clearable @keyup.enter="fetchList" />
-      </el-form-item>
-      <el-form-item label="租赁状态">
-        <el-select v-model="query.rentStatus" placeholder="全部" clearable style="width: 140px">
-          <el-option v-for="(label, value) in RENT_STATUS" :key="value" :label="label" :value="value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" :icon="Search" @click="fetchList">查询</el-button>
-        <el-button :icon="RefreshRight" @click="resetQuery">重置</el-button>
-      </el-form-item>
-    </el-form>
+    <PageTable
+      :rows="table.rows.value"
+      :total="table.total.value"
+      :loading="table.loading.value"
+      :page-num="table.query.pageNum"
+      :page-size="table.query.pageSize"
+      @page-change="table.onPageChange"
+      @size-change="table.onSizeChange"
+    >
+      <template #search>
+        <el-form inline @submit.prevent="table.search">
+          <el-form-item label="关键词">
+            <el-input v-model="table.query.keyword" placeholder="标题 / 地址" clearable @keyup.enter="table.search" />
+          </el-form-item>
+          <el-form-item label="租赁状态">
+            <el-select v-model="table.query.rentStatus" placeholder="全部" clearable style="width: 140px">
+              <el-option label="可租" value="AVAILABLE" />
+              <el-option label="签约中" value="LOCKED" />
+              <el-option label="在租" value="RENTED" />
+              <el-option label="已下架" value="OFFLINE" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :icon="Search" @click="table.search">查询</el-button>
+            <el-button :icon="RefreshRight" @click="table.reset">重置</el-button>
+          </el-form-item>
+        </el-form>
+      </template>
 
-    <el-table v-loading="loading" :data="rows" stripe>
+      <template #empty>
+        <el-empty
+          :image-size="80"
+          :description="table.query.keyword || table.query.rentStatus ? '无匹配结果，换个条件试试' : '暂无房源'"
+        />
+      </template>
+
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column label="房源" min-width="220">
         <template #default="{ row }">
@@ -39,9 +58,9 @@
       </el-table-column>
       <el-table-column label="审核 / 租赁状态" width="180">
         <template #default="{ row }">
-          <!-- 两个状态并排展示（设计方案 §1.1） -->
-          <el-tag :type="AUDIT_TAG[row.auditStatus]" size="small">{{ AUDIT_STATUS[row.auditStatus] }}</el-tag>
-          <el-tag :type="RENT_TAG[row.rentStatus]" size="small" class="ml4">{{ RENT_STATUS[row.rentStatus] }}</el-tag>
+          <!-- 两个状态并排展示（设计方案 §1.1），文案颜色唯一来源 StatusTag -->
+          <StatusTag kind="auditStatus" :value="row.auditStatus" />
+          <StatusTag kind="rentStatus" :value="row.rentStatus" />
         </template>
       </el-table-column>
       <el-table-column label="最新甲醛 mg/m³" width="130">
@@ -52,75 +71,30 @@
           <span v-else class="muted">无设备</span>
         </template>
       </el-table-column>
-      <el-table-column prop="createdAt" label="发布时间" width="170">
+      <el-table-column prop="createdAt" label="发布时间" width="120">
         <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
       </el-table-column>
-    </el-table>
-
-    <el-pagination
-      v-model:current-page="query.pageNum"
-      v-model:page-size="query.pageSize"
-      :total="total"
-      :page-sizes="[10, 20, 50]"
-      layout="total, sizes, prev, pager, next, jumper"
-      class="pager"
-      @current-change="fetchList"
-      @size-change="fetchList"
-    />
+    </PageTable>
   </el-card>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { Plus, Search, RefreshRight } from '@element-plus/icons-vue'
+import PageTable from '@/components/PageTable/index.vue'
+import StatusTag from '@/components/StatusTag/index.vue'
+import { useTable } from '@/hooks/useTable'
 import { listHouses, type HouseQuery } from '@/api/house'
 import type { HouseItem } from '@/types/api'
 
-/** 枚举文案映射唯一来源 = 设计方案 §1.1；页面禁止硬编码文案 */
-const AUDIT_STATUS: Record<string, string> = { PENDING: '待审核', APPROVED: '已通过', REJECTED: '已驳回' }
-const RENT_STATUS: Record<string, string> = { AVAILABLE: '可租', LOCKED: '签约中', RENTED: '在租', OFFLINE: '已下架' }
-const AUDIT_TAG: Record<string, 'warning' | 'success' | 'danger'> = {
-  PENDING: 'warning',
-  APPROVED: 'success',
-  REJECTED: 'danger',
-}
-const RENT_TAG: Record<string, 'success' | 'warning' | 'primary' | 'info'> = {
-  AVAILABLE: 'success',
-  LOCKED: 'warning',
-  RENTED: 'primary',
-  OFFLINE: 'info',
-}
-
-const loading = ref(false)
-const rows = ref<HouseItem[]>([])
-const total = ref(0)
-const query = reactive<HouseQuery>({ keyword: '', rentStatus: undefined, pageNum: 1, pageSize: 10 })
-
-async function fetchList(): Promise<void> {
-  loading.value = true
-  try {
-    const data = await listHouses(query)
-    rows.value = data?.list ?? []
-    total.value = data?.total ?? 0
-  } finally {
-    loading.value = false
-  }
-}
-
-function resetQuery(): void {
-  query.keyword = ''
-  query.rentStatus = undefined
-  query.pageNum = 1
-  fetchList()
-}
+const table = useTable<HouseItem, HouseQuery>(listHouses, { keyword: '', rentStatus: undefined })
 
 /** 列表列时间格式：YYYY-MM-DD HH:mm（设计方案 §1.3） */
 function formatDateTime(iso: string): string {
   return dayjs(iso).format('YYYY-MM-DD HH:mm')
 }
 
-onMounted(fetchList)
+table.fetchList()
 </script>
 
 <style scoped lang="scss">
@@ -128,9 +102,6 @@ onMounted(fetchList)
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-.search-form {
-  margin-bottom: 4px;
 }
 .house-cell {
   .house-title {
@@ -149,12 +120,5 @@ onMounted(fetchList)
 }
 .muted {
   color: #c0c4cc;
-}
-.ml4 {
-  margin-left: 4px;
-}
-.pager {
-  margin-top: 16px;
-  justify-content: flex-end;
 }
 </style>

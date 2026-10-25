@@ -2,7 +2,7 @@
 
 Spring Boot 3.3 + Java 21 + MyBatis-Plus + MySQL 8 + Redis 7（选型依据见技术方案 §2.1）。
 
-## 当前状态（W1 工程骨架）
+## 当前状态（W2 认证已落地）
 
 - ✅ `pom.xml`（web / security / validation / redis / mybatis-plus / jjwt / knife4j；websocket、amqp、oss、shedlock 注释待 W4-W6 启用）
 - ✅ 统一响应契约层：`R` / `PageResult` / `ResultCode`（错误码唯一来源，§6.2 全量 41 个码）
@@ -10,7 +10,10 @@ Spring Boot 3.3 + Java 21 + MyBatis-Plus + MySQL 8 + Redis 7（选型依据见�
 - ✅ 13 个业务枚举，与《设计方案》§1.1、openapi.yaml 三方一致
 - ✅ `application.yml`（context-path=/api/v1）+ dev/prod 分环境 + `.env.example`
 - ✅ `PingController`：启动后 `GET /api/v1/ping` 验证存活与响应体格式
-- ⏳ W2：JWT 过滤器链、认证体系（SecurityConfig 中的 TODO 列表）
+- ✅ W2：数据库 V1/V2/V3 已建（rental_env，9 表）；认证全链路落地：
+  SecurityFilterChain + JwtAuthenticationFilter + TokenService（双令牌轮换 + 30 秒幂等宽限 +
+  Redis 白名单/黑名单 + token_version 即时失效）+ 登录防爆破（5 次锁 15 分钟）
+  已验证：登录/刷新/宽限重放/登出拉黑/版本失效/20005 锁定 全部通过
 - ⏳ W3+：controller / service / mapper / state / guard 按 openapi.yaml 逐模块实现
 
 ## 契约唯一来源

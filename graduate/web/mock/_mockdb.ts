@@ -1,54 +1,26 @@
 /**
- * Mock 共享数据源：账号、房源。字段与 openapi.yaml HouseItem/UserInfo 一致。
+ * Mock 共享数据源（W2 起 mock 仅覆盖 house / stat，auth 已走真实后端）。
+ * 字段与 openapi.yaml HouseItem 一致。
  */
 
 export interface MockAccount {
   id: number
   username: string
-  password: string
-  nickname: string
-  realName: string
   role: 'ADMIN' | 'LANDLORD'
-  orgName: string | null
-  permissions: string[]
 }
 
 export const ACCOUNTS: MockAccount[] = [
-  {
-    id: 1,
-    username: 'admin',
-    password: 'admin123',
-    nickname: '张管理',
-    realName: '张管理',
-    role: 'ADMIN',
-    orgName: null,
-    permissions: ['*'],
-  },
-  {
-    id: 2,
-    username: 'landlord1',
-    password: '123456',
-    nickname: '李房东',
-    realName: '李明',
-    role: 'LANDLORD',
-    orgName: '示例房产中介',
-    permissions: ['house:create', 'house:update', 'application:approve', 'device:bind', 'alarm:handle'],
-  },
+  { id: 1, username: 'admin', role: 'ADMIN' },
+  { id: 2, username: 'landlord1', role: 'LANDLORD' },
 ]
 
-/** 从 headers 中取 Authorization（Node 中间件 header 名为小写，做不敏感匹配） */
-export function parseAccessToken(headers?: Record<string, string>): string | null {
+/** 解析 Authorization: Bearer mock-access-{role}-{id}（明文 token 便于演示调试） */
+export function parseAccessHeader(headers?: Record<string, string>): MockAccount | null {
   if (!headers) return null
   const key = Object.keys(headers).find((k) => k.toLowerCase() === 'authorization')
-  const value = key ? headers[key] : null
-  if (!value) return null
-  return value.replace(/^Bearer\s+/i, '')
-}
-
-/** 解析 mock-access-{role}-{id} 形式的明文 token（便于演示调试） */
-export function parseAccessHeader(headers?: Record<string, string>): MockAccount | null {
-  const token = parseAccessToken(headers)
-  if (!token || !token.startsWith('mock-access-')) return null
+  if (!key) return null
+  const token = String(headers[key]).replace(/^Bearer\s+/i, '')
+  if (!token.startsWith('mock-access-')) return null
   const parts = token.split('-')
   return ACCOUNTS.find((a) => a.role === parts[2] && String(a.id) === parts[3]) ?? null
 }
