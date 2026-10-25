@@ -1,0 +1,66 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/login/index",
+    "pages/house/list",
+    "pages/house/detail",
+    "pages/mine/index",
+    "pages/appointment/list",
+    "pages/dashboard/index"
+  ],
+  "subPackages": [
+    {
+      "root": "packageA-rental",
+      "pages": [
+        "pages/appointment/create/index",
+        "pages/application/create/index",
+        "pages/application/list/index",
+        "pages/contract/list/index",
+        "pages/contract/detail/index"
+      ]
+    },
+    {
+      "root": "packageB-env",
+      "pages": [
+        "pages/history/index",
+        "pages/alarm/list",
+        "pages/device/info"
+      ]
+    }
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#185FA5",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "房屋租赁与环境监测",
+    "backgroundColor": "#F5F7FA",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#5F5E5A",
+    "selectedColor": "#185FA5",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/appointment/list",
+        "text": "预约"
+      },
+      {
+        "pagePath": "pages/dashboard/index",
+        "text": "我家"
+      },
+      {
+        "pagePath": "pages/mine/index",
+        "text": "我的"
+      }
+    ]
+  },
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json",
+  "usingComponents": {}
+}

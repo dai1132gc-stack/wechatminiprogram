@@ -1,0 +1,5 @@
+<view class="empty">
+  <view>历史趋势</view>
+  <view class="sub">W5 接入 /env/houses/{houseId}/trend 与 ec-canvas 图表</view>
+</view>
+<view class="back-home" bindtap="goHome">← 返回我家</view>

@@ -1,0 +1,41 @@
+<view wx:if="{{loading}}" class="loading-mask">加载中…</view>
+
+<view wx:elif="{{house}}" class="page">
+  <view class="hero">
+    <view class="hero-emoji">🏠</view>
+    <view class="hero-tags">
+      <text class="tag {{house.rentStatus === 'AVAILABLE' ? 'tag-success' : 'tag-gray'}}">{{house.rentStatusText}}</text>
+      <text wx:if="{{house.deviceStatus === 'ONLINE'}}" class="tag tag-info">环境监测中</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">{{house.title}}</view>
+    <view class="text-sub" style="margin-top:8rpx">{{house.district}} · {{house.address}}</view>
+    <view class="price-row">
+      <text class="price">{{house.rentText}}</text>
+      <text class="text-sub">/月 · 押金 {{house.depositText}}</text>
+    </view>
+    <view class="spec-grid">
+      <view class="spec"><view class="spec-v">{{house.layout}}</view><view class="text-sub">户型</view></view>
+      <view class="spec"><view class="spec-v">{{house.areaText}}</view><view class="text-sub">面积</view></view>
+      <view class="spec"><view class="spec-v">{{house.createdText}}</view><view class="text-sub">发布时间</view></view>
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{house.hchoText}}">
+    <view class="card-title">室内环境（最新）</view>
+    <view class="env-row {{house.hchoExceeded ? 'env-bad' : ''}}">
+      <text>甲醛（估算）</text>
+      <text class="env-value">{{house.hchoText}}{{house.hchoExceeded ? ' ↑' : ''}}</text>
+    </view>
+    <view class="text-sub" style="margin-top:8rpx">数据来自房屋内置监测设备，超阈值变红提示</view>
+  </view>
+
+  <view class="actions">
+    <button class="btn-primary" plain bindtap="goAppointment">预约看房</button>
+    <button class="btn-primary" bindtap="goApplication">申请租赁</button>
+  </view>
+</view>
+
+<view wx:else class="empty">房源不存在或已下架</view>

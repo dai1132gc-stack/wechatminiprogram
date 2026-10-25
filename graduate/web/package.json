@@ -1,0 +1,30 @@
+{
+  "name": "rental-env-admin",
+  "private": true,
+  "version": "0.1.0",
+  "description": "房屋租赁与室内环境监测系统 - Web 管理后台（Vue3 + TS + Element Plus）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.7.7",
+    "dayjs": "^1.11.13",
+    "element-plus": "^2.8.4",
+    "pinia": "^2.2.2",
+    "vue": "^3.4.38",
+    "vue-router": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^5.1.2",
+    "sass": "^1.77.8",
+    "typescript": "~5.5.4",
+    "vite": "^5.4.8",
+    "vite-plugin-mock": "^3.0.1",
+    "vue-tsc": "^2.1.4"
+  }
+}

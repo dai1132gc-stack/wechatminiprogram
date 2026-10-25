@@ -1,0 +1,61 @@
+.page {
+  padding-bottom: 140rpx;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 32rpx;
+}
+
+.head-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 8rpx;
+}
+
+.metric-grid {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0 12rpx;
+}
+
+.metric {
+  width: calc(50% - 24rpx);
+  margin: 12rpx;
+}
+
+.metric-value {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: var(--success);
+  margin-top: 8rpx;
+}
+
+.metric-bad .metric-value {
+  color: var(--danger);
+}
+
+.entries {
+  padding: 8rpx 24rpx;
+}
+
+.entry {
+  display: flex;
+  justify-content: space-between;
+  padding: 26rpx 8rpx;
+  border-bottom: 1rpx solid #f0f2f5;
+  font-size: 28rpx;
+  color: var(--text-main);
+}
+
+.entry:last-child {
+  border-bottom: none;
+}
+
+.tip {
+  text-align: center;
+  margin-top: 24rpx;
+}

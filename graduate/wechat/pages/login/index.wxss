@@ -1,0 +1,88 @@
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #185fa5 0%, #2fa3c9 55%, #f5f7fa 100%);
+}
+
+.brand {
+  padding: 140rpx 0 80rpx;
+  text-align: center;
+  color: #fff;
+}
+
+.brand-logo {
+  font-size: 100rpx;
+}
+
+.brand-title {
+  margin-top: 24rpx;
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+.brand-slogan {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  opacity: 0.85;
+}
+
+.login-body {
+  margin: 60rpx 48rpx 0;
+}
+
+.login-btn {
+  width: 100%;
+  height: 92rpx;
+  line-height: 92rpx;
+  font-size: 32rpx;
+}
+
+.landlord-entry {
+  text-align: center;
+  margin-top: 32rpx;
+  font-size: 26rpx;
+  color: #185fa5;
+}
+
+.agreement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 48rpx;
+  font-size: 22rpx;
+  color: #909399;
+}
+
+.checkbox {
+  width: 32rpx;
+  height: 32rpx;
+  border: 2rpx solid #c0c4cc;
+  border-radius: 50%;
+  margin-right: 10rpx;
+  text-align: center;
+  line-height: 30rpx;
+  font-size: 20rpx;
+  color: transparent;
+}
+
+.checkbox.checked {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.link {
+  color: var(--brand);
+}
+
+.footer {
+  position: fixed;
+  bottom: 40rpx;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 22rpx;
+  color: #c0c4cc;
+}

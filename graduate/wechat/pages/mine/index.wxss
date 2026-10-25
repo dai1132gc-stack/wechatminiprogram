@@ -1,0 +1,74 @@
+.page {
+  padding-bottom: 140rpx;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  padding: 32rpx 24rpx;
+}
+
+.avatar {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #185fa5, #2fa3c9);
+  color: #fff;
+  font-size: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 24rpx;
+}
+
+.user-info {
+  flex: 1;
+}
+
+.mode-switch {
+  display: flex;
+  margin: 0 24rpx 20rpx;
+  border-radius: 44rpx;
+  overflow: hidden;
+  border: 2rpx solid var(--brand);
+  font-size: 26rpx;
+}
+
+.mode-switch text {
+  flex: 1;
+  text-align: center;
+  padding: 14rpx 0;
+  color: var(--brand);
+}
+
+.mode-switch text:first-child {
+  background: var(--brand);
+  color: #fff;
+}
+
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 26rpx 8rpx;
+  font-size: 28rpx;
+  color: var(--text-main);
+  border-bottom: 1rpx solid #f0f2f5;
+}
+
+.menu-item:last-child {
+  border-bottom: none;
+}
+
+.menu-hover {
+  background: #f7f9fc;
+}
+
+.arrow {
+  color: #c0c4cc;
+}
+
+.logout {
+  background: #fff;
+  color: var(--danger);
+  border: 2rpx solid var(--danger);
+}

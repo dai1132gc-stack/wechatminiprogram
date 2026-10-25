@@ -1,0 +1,26 @@
+# 开发环境：敏感项从环境变量读取（清单见 .env.example），本文件不含真实密钥
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:rental_env}?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+logging:
+  level:
+    com.rentalplatform: debug
+
+# JWT 密钥：W2 启用。生产必须用环境变量注入 ≥256bit 随机串
+rental:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-secret-key-change-me-0123456789abcdef}
+    access-ttl-minutes: 120
+    refresh-ttl-days: 7
+  wechat:
+    appid: ${WX_APPID:wx-test-appid}
+    secret: ${WX_SECRET:wx-test-secret}

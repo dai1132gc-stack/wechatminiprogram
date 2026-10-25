@@ -1,0 +1,79 @@
+.page {
+  padding-bottom: 160rpx;
+}
+
+.hero {
+  background: linear-gradient(135deg, #185fa5, #2fa3c9);
+  padding: 60rpx 32rpx 40rpx;
+  text-align: center;
+}
+
+.hero-emoji {
+  font-size: 110rpx;
+}
+
+.hero-tags {
+  margin-top: 16rpx;
+}
+
+.price-row {
+  margin-top: 20rpx;
+}
+
+.price {
+  color: var(--danger);
+  font-size: 44rpx;
+  font-weight: 700;
+}
+
+.spec-grid {
+  display: flex;
+  margin-top: 24rpx;
+}
+
+.spec {
+  flex: 1;
+  text-align: center;
+}
+
+.spec-v {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 4rpx;
+}
+
+.env-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16rpx;
+  font-size: 28rpx;
+}
+
+.env-bad .env-value {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.env-value {
+  color: var(--success);
+}
+
+.actions {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 20rpx;
+  padding: 20rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: #fff;
+  box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.actions button {
+  flex: 1;
+  height: 84rpx;
+  line-height: 84rpx;
+  font-size: 28rpx;
+}

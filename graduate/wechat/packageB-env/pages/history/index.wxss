@@ -1,0 +1,23 @@
+.empty {
+  text-align: center;
+  padding: 120rpx 40rpx;
+  color: #909399;
+  font-size: 28rpx;
+}
+.sub {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  color: #c0c4cc;
+}
+.back-home {
+  position: fixed;
+  bottom: 40rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #185fa5;
+  font-size: 26rpx;
+  padding: 12rpx 32rpx;
+  background: #fff;
+  border-radius: 32rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+}

@@ -1,0 +1,55 @@
+/* 通用样式：卡片、标签、空态、加载骨架（W1 最小集，W2 起随组件扩充） */
+.card {
+  background: var(--bg-card);
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin: 20rpx 24rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+}
+
+.card-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.text-sub {
+  font-size: 24rpx;
+  color: var(--text-sub);
+}
+
+.tag {
+  display: inline-block;
+  font-size: 20rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 6rpx;
+  margin-right: 8rpx;
+}
+
+.tag-success { color: var(--success); background: rgba(59, 109, 17, 0.1); }
+.tag-warning { color: var(--warning); background: rgba(186, 117, 23, 0.12); }
+.tag-danger  { color: var(--danger);  background: rgba(163, 45, 45, 0.1); }
+.tag-info    { color: var(--info);    background: rgba(24, 95, 165, 0.1); }
+.tag-gray    { color: var(--text-sub); background: rgba(144, 147, 153, 0.15); }
+
+.empty {
+  text-align: center;
+  padding: 80rpx 0;
+  color: var(--text-sub);
+  font-size: 26rpx;
+}
+
+.btn-primary {
+  background: var(--brand);
+  color: #fff;
+  border-radius: 44rpx;
+  font-size: 30rpx;
+}
+
+.loading-mask {
+  display: flex;
+  justify-content: center;
+  padding: 60rpx 0;
+  color: var(--text-sub);
+  font-size: 26rpx;
+}

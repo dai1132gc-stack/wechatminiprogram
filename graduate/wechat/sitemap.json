@@ -1,0 +1,7 @@
+{
+  "desc": "房源详情允许被搜索索引，登录/合同等页面禁止索引",
+  "rules": [
+    { "action": "disallow", "page": "pages/login/index" },
+    { "action": "allow", "page": "*" }
+  ]
+}

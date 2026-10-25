@@ -1,0 +1,8 @@
+{
+  "name": "rental-env-wechat",
+  "version": "0.1.0",
+  "description": "房屋租赁与室内环境监测 - 微信小程序（原生 + TDesign）",
+  "dependencies": {
+    "tdesign-miniprogram": "^1.8.0"
+  }
+}

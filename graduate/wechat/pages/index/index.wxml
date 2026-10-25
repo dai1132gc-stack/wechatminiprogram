@@ -1,0 +1,47 @@
+<!-- 同一文件按模式条件渲染（技术方案 §11）：SEEKING 找房流 / LIVING 居住入口 -->
+<view class="page">
+  <!-- ───── 找房模式 ───── -->
+  <block wx:if="{{mode === 'SEEKING' || mode === 'BOTH'}}">
+    <view class="search-bar" bindtap="goHouseList">
+      <text class="search-icon">🔍</text>
+      <text class="search-text">搜索房源 / 地址</text>
+    </view>
+
+    <view wx:if="{{loading}}" class="loading-mask">加载中…</view>
+    <view wx:elif="{{houses.length === 0}}" class="empty">暂无可租房源</view>
+
+    <view
+      wx:for="{{houses}}"
+      wx:key="id"
+      class="card house-card"
+      data-id="{{item.id}}"
+      bindtap="goHouseDetail"
+    >
+      <view class="house-cover">🏠</view>
+      <view class="house-info">
+        <view class="card-title">{{item.title}}</view>
+        <view class="text-sub">{{item.district}} · {{item.layout}} · {{item.areaText}}</view>
+        <view class="house-meta">
+          <text class="tag {{item.rentStatus === 'AVAILABLE' ? 'tag-success' : 'tag-gray'}}">
+            {{item.rentStatusText}}
+          </text>
+          <text class="house-rent">{{item.rentText}}<text class="text-sub">/月</text></text>
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <!-- ───── 居住模式 ───── -->
+  <block wx:else>
+    <view class="living-head">
+      <view class="living-title">我家</view>
+      <view class="text-sub">实时环境数据见「我家」标签页</view>
+    </view>
+    <view class="card">
+      <view class="card-title">居住模式提示</view>
+      <view class="text-sub" style="margin-top: 12rpx">
+        你有生效中的租约。环境看板在底部「我家」标签，趋势与告警在对应标签查看（W5 实现图表）。
+      </view>
+    </view>
+  </block>
+</view>

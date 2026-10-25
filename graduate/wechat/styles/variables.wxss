@@ -1,0 +1,14 @@
+/* 设计令牌：与 Web 端品牌色一致（设计方案 §1.1 颜色体系） */
+page {
+  --brand: #185FA5;
+  --brand-light: #E4EFF8;
+  --success: #3B6D11;
+  --warning: #BA7517;
+  --danger: #A32D2D;
+  --info: #185FA5;
+  --text-main: #303133;
+  --text-sub: #909399;
+  --bg-page: #F5F7FA;
+  --bg-card: #FFFFFF;
+  background: var(--bg-page);
+}

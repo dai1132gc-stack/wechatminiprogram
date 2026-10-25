@@ -1,0 +1,2396 @@
+openapi: 3.0.3
+info:
+  title: 房屋租赁与室内环境监测系统 API
+  version: 1.0.0
+  description: |
+    依据《技术方案》§13 接口清单与《设计方案》§4 契约对齐检查表扩写。
+    本文件是前后端与 Mock 的**唯一契约来源**，三端（server / admin / miniprogram）以此为准。
+
+    ## 全局约定
+
+    - **统一响应体**：所有接口返回 `{ code, message, data, traceId, timestamp }`。
+      `code = 0` 成功；业务错误保持 HTTP 200 + 非 0 业务码（见下方错误码分段）。
+      HTTP 4xx/5xx 仅表达传输层异常（参数格式、鉴权、限流、服务故障）。
+    - **分页**：请求 `pageNum`（从 1 起）/ `pageSize`（默认 10，上限 100）；
+      响应 `data` 为 `{ list, total, pageNum, pageSize, pages }`。
+    - **时间**：ISO-8601 带时区，如 `2026-10-25T14:05:00+08:00`。
+    - **金额**：number，单位元，DECIMAL(10,2)；前端展示取整。
+    - **环境数值**：number；甲醛/TVOC 三位小数（mg/m³），CO₂ 整数（ppm），
+      温度/湿度一位小数。
+    - **枚举**：全部为大写字符串常量，与《设计方案》§1.1 对照表一致。
+    - **无数据**：`data` 为 `null`，不返回空对象、不省略字段。
+    - **认证**：除 `x-permission: PUBLIC` 与 `/ingest/**`（HMAC）外，
+      均需 `Authorization: Bearer <accessToken>`。
+    - **路径顺序**：`/houses/map`、`/houses/mine`、`/houses/audit/pending`
+      等**字面量路径必须先于** `/houses/{id}` 注册（Spring 路径匹配规则），
+      本文件 paths 已按此顺序排列。
+
+    ## 错误码分段（五位数字，集中定义于 ResultCode）
+
+    | 段位 | 域 | 典型示例 |
+    |---|---|---|
+    | 0 | 成功 | — |
+    | 10xxx | 通用 | 10001 参数校验失败 / 10003 资源不存在 / 10004 请求过于频繁 |
+    | 20xxx | 认证 | 20001 未登录 / 20002 令牌过期 / 20003 刷新令牌无效 / 20006 用户名或密码错误 |
+    | 30xxx | 授权 | 30001 无操作权限 / 30003 租约已失效，环境数据不可见 |
+    | 40xxx | 租赁业务 | 40001 状态不允许该操作 / 40003 该房源已被签约 |
+    | 50xxx | 设备与环境 | 50001 设备不存在 / 50005 设备签名校验失败 |
+    | 90xxx | 系统 | 90001 系统内部错误 |
+
+    ## 令牌（JWT，双令牌）
+
+    - Access Token：HS256，有效期 2 小时，`Authorization: Bearer` 携带。
+    - Refresh Token：7 天，Redis 白名单 + 一次性轮换（30 秒幂等宽限期）。
+    - 令牌载荷含 `sub`（用户 id）、`role`、`ver`（token_version）、`type`、`jti`。
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: 本地开发
+  - url: https://api.example.com/api/v1
+    description: 生产（占位）
+
+tags:
+  - name: auth
+    description: 认证（登录 / 刷新 / 登出）
+  - name: user
+    description: 当前用户资料与模式
+  - name: house
+    description: 房源发布、列表、审核
+  - name: appointment
+    description: 看房预约
+  - name: application
+    description: 租赁申请
+  - name: contract
+    description: 租赁合同
+  - name: device
+    description: 环境监测设备管理
+  - name: env
+    description: 环境数据查询（实时 / 趋势 / 统计 / 总览）
+  - name: ingest
+    description: 设备数据上报（HTTP 旁路，HMAC 签名）
+  - name: alarm
+    description: 环境告警
+  - name: admin
+    description: 管理端（用户 / 日志 / 统计）
+  - name: file
+    description: 文件上传
+  - name: dict
+    description: 字典查询
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ───────────────────────── 认证 ─────────────────────────
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Web 账号密码登录
+      description: 供 Web 管理后台（LANDLORD / ADMIN）登录。连续 5 次失败锁定 15 分钟（20005）。
+      security: []
+      x-permission: PUBLIC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginDTO'
+            examples:
+              admin:
+                value: { username: admin, password: admin123 }
+              landlord:
+                value: { username: landlord1, password: '123456' }
+      responses:
+        '200':
+          description: 登录成功返回双令牌；失败时 HTTP 仍为 200，业务码 20006/20004/20005
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginData'
+              example:
+                code: 0
+                message: ok
+                data:
+                  accessToken: eyJhbGciOiJIUzI1NiJ9.xxx.xxx
+                  refreshToken: eyJhbGciOiJIUzI1NiJ9.yyy.yyy
+                  expiresIn: 7200
+                  userInfo:
+                    id: 1
+                    username: admin
+                    nickname: 张管理
+                    role: ADMIN
+                    status: ACTIVE
+                  permissions: ['*']
+                traceId: 9f2c1a7b4e6d
+                timestamp: 1761364800123
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/wx-login:
+    post:
+      tags: [auth]
+      operationId: wxLogin
+      summary: 小程序微信登录
+      description: |
+        code 换 openid：后端调 jscode2session；用户不存在时自动注册（role=TENANT）。
+        可选携带 encryptedData + iv 用于后续手机号解密（session_key 由服务端缓存）。
+      security: []
+      x-permission: PUBLIC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WxLoginDTO'
+      responses:
+        '200':
+          description: 成功；code 无效时业务码 20007
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WxLoginData'
+              example:
+                code: 0
+                message: ok
+                data:
+                  accessToken: eyJhbGciOiJIUzI1NiJ9.xxx.xxx
+                  refreshToken: eyJhbGciOiJIUzI1NiJ9.yyy.yyy
+                  expiresIn: 7200
+                  userInfo:
+                    id: 10086
+                    nickname: 微信用户_8a2f
+                    avatar: ''
+                    role: TENANT
+                    status: ACTIVE
+                  mode: SEEKING
+                traceId: 9f2c1a7b4e6d
+                timestamp: 1761364800123
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshToken
+      summary: 刷新令牌（一次性轮换）
+      description: |
+        旧 refresh jti 删除后写入 30 秒 used 宽限集：宽限期内重放返回**同一**新令牌对（幂等），
+        宽限期外重放判定为被盗，清空该用户全部 refresh 并返回 20003。
+      security: []
+      x-permission: PUBLIC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+                  description: 仅本接口以请求体携带 refresh token
+      responses:
+        '200':
+          description: 成功返回新令牌对；无效/重放返回业务码 20003
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: 登出
+      description: access jti 进黑名单（TTL=剩余有效期）；删除该 refresh 的 Redis 白名单键。
+      x-permission: LOGIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: 登出成功，data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  # ───────────────────────── 用户 ─────────────────────────
+  /users/me:
+    get:
+      tags: [user]
+      operationId: getCurrentUser
+      summary: 当前用户信息
+      x-permission: LOGIN
+      responses:
+        '200':
+          description: 用户信息（不含 password / idCard 等敏感字段）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserInfo'
+    put:
+      tags: [user]
+      operationId: updateCurrentUser
+      summary: 修改资料
+      x-permission: LOGIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nickname:
+                  type: string
+                  maxLength: 50
+                avatar:
+                  type: string
+                  description: 头像 URL（先走 /files/upload）
+                realName:
+                  type: string
+                  maxLength: 50
+                  description: 实名信息，房东必填
+      responses:
+        '200':
+          description: 修改成功，返回更新后的用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserInfo'
+
+  /users/me/phone:
+    put:
+      tags: [user]
+      operationId: bindPhone
+      summary: 绑定手机号
+      description: 用 session_key 解密 encryptedData 得到手机号。提交租赁申请前强制要求已绑定。
+      x-permission: LOGIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [encryptedData, iv]
+              properties:
+                encryptedData:
+                  type: string
+                iv:
+                  type: string
+      responses:
+        '200':
+          description: 绑定成功，返回脱敏手机号（如 138****5678）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          phone:
+                            type: string
+                            example: '138****5678'
+
+  /users/me/password:
+    put:
+      tags: [user]
+      operationId: changePassword
+      summary: 修改密码
+      description: 成功后 token_version + 1，该用户全部旧令牌立即失效（前端收到 20001/20003 后跳登录）。
+      x-permission: LOGIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldPassword, newPassword]
+              properties:
+                oldPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 6
+                  maxLength: 32
+      responses:
+        '200':
+          description: 修改成功，data 为 null（前端应清除令牌并跳登录）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /users/me/mode:
+    get:
+      tags: [user]
+      operationId: getCurrentMode
+      summary: 当前模式与有效合同
+      description: |
+        小程序启动时调用。判定依据：存在覆盖当前日期的生效合同 → LIVING（可同时 SEEKING → BOTH）；
+        仅无租约 → SEEKING。前端据 `mode` 决定 tabBar 与首页渲染分支。
+      x-permission: LOGIN
+      responses:
+        '200':
+          description: 模式与有效合同列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ModeData'
+
+  # ───────────────────────── 房源 ─────────────────────────
+  /houses:
+    get:
+      tags: [house]
+      operationId: listHouses
+      summary: 房源列表（分页、筛选、排序）
+      description: |
+        公开接口，默认仅返回 `auditStatus=APPROVED` 且 `rentStatus != OFFLINE` 的房源；
+        管理员带 auditStatus 参数可查全量。列表「环境列」（latestHcho 等）由后端 join 返回，
+        前端禁止循环请求详情。
+      security: []
+      x-permission: PUBLIC
+      parameters:
+        - { name: keyword, in: query, schema: { type: string }, description: '标题/地址模糊匹配' }
+        - { name: district, in: query, schema: { type: string }, description: 行政区，如 西湖区 }
+        - { name: layout, in: query, schema: { type: string }, description: '户型，如 2-1-1（字典 LAYOUT）' }
+        - { name: rentMin, in: query, schema: { type: number }, description: 租金下限（元/月） }
+        - { name: rentMax, in: query, schema: { type: number }, description: 租金上限（元/月） }
+        - { name: auditStatus, in: query, schema: { $ref: '#/components/schemas/AuditStatus' }, description: 仅 ADMIN 可传非 APPROVED }
+        - { name: rentStatus, in: query, schema: { $ref: '#/components/schemas/RentStatus' } }
+        - { name: sortBy, in: query, schema: { type: string, default: createdAt, enum: [createdAt, rent, area] } }
+        - { name: sortOrder, in: query, schema: { type: string, default: desc, enum: [asc, desc] } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 房源分页列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/HousePage'
+              example:
+                code: 0
+                message: ok
+                data:
+                  list:
+                    - id: 301
+                      title: 阳光花园 3 栋 301
+                      district: 西湖区
+                      address: 文一西路 88 号
+                      layout: 2-1-1
+                      area: 89.5
+                      rent: 3200.00
+                      deposit: 3200.00
+                      coverUrl: 'https://cdn.example.com/house/301-1.jpg'
+                      auditStatus: APPROVED
+                      rentStatus: AVAILABLE
+                      deviceStatus: ONLINE
+                      latestHcho: 0.032
+                      hchoExceeded: false
+                      createdAt: '2026-10-20T10:12:00+08:00'
+                  total: 128
+                  pageNum: 1
+                  pageSize: 10
+                  pages: 13
+                traceId: 9f2c1a7b4e6d
+                timestamp: 1761364800123
+    post:
+      tags: [house]
+      operationId: createHouse
+      summary: 发布房源
+      description: 新建后 auditStatus=PENDING、rentStatus=AVAILABLE，等待管理员审核。
+      x-permission: LANDLORD
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseSaveDTO'
+      responses:
+        '200':
+          description: 返回新房源 id
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: integer, format: int64, description: 新房源 id }
+
+  /houses/map:
+    get:
+      tags: [house]
+      operationId: mapHouses
+      summary: 地图找房（矩形范围查询）
+      security: []
+      x-permission: PUBLIC
+      parameters:
+        - { name: minLat, in: query, required: true, schema: { type: number }, description: 西南角纬度 }
+        - { name: maxLat, in: query, required: true, schema: { type: number }, description: 东北角纬度 }
+        - { name: minLng, in: query, required: true, schema: { type: number }, description: 西南角经度 }
+        - { name: maxLng, in: query, required: true, schema: { type: number }, description: 东北角经度 }
+        - { name: rentMax, in: query, schema: { type: number } }
+      responses:
+        '200':
+          description: 范围内可租房源（仅 APPROVED 且非 OFFLINE），最多 200 条
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MapHouse'
+
+  /houses/mine:
+    get:
+      tags: [house]
+      operationId: myHouses
+      summary: 我发布的房源
+      x-permission: LANDLORD
+      parameters:
+        - { name: auditStatus, in: query, schema: { $ref: '#/components/schemas/AuditStatus' } }
+        - { name: rentStatus, in: query, schema: { $ref: '#/components/schemas/RentStatus' } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 当前房东名下房源分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/HousePage'
+
+  /houses/audit/pending:
+    get:
+      tags: [house]
+      operationId: pendingAuditHouses
+      summary: 待审核列表
+      x-permission: ADMIN
+      parameters:
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: auditStatus=PENDING 的房源分页（按提交时间正序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/HousePage'
+
+  /houses/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    get:
+      tags: [house]
+      operationId: getHouse
+      summary: 房源详情
+      description: 公开；未审核通过的房源仅发布人与 ADMIN 可见（否则 30002）。
+      security: []
+      x-permission: PUBLIC
+      responses:
+        '200':
+          description: 房源详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/HouseDetail'
+    put:
+      tags: [house]
+      operationId: updateHouse
+      summary: 编辑房源
+      description: 仅本人（或 ADMIN）；编辑已通过审核的房源会回到 PENDING 重新审核。乐观锁 version 并发校验。
+      x-permission: LANDLORD
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseSaveDTO'
+      responses:
+        '200':
+          description: 修改成功，data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /houses/{id}/offline:
+    post:
+      tags: [house]
+      operationId: offlineHouse
+      summary: 下架
+      description: rentStatus → OFFLINE；在租（RENTED）房源不允许下架（40001）。
+      x-permission: LANDLORD
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /houses/{id}/online:
+    post:
+      tags: [house]
+      operationId: onlineHouse
+      summary: 重新上架
+      description: OFFLINE → AVAILABLE（需此前已审核通过，否则 40006）。
+      x-permission: LANDLORD
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /houses/{id}/audit:
+    post:
+      tags: [house]
+      operationId: auditHouse
+      summary: 审核房源
+      x-permission: ADMIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseAuditDTO'
+      responses:
+        '200':
+          description: 审核完成，data 为 null。APPROVED 时 rentStatus 保持/回到 AVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  # ───────────────────────── 预约 ─────────────────────────
+  /appointments:
+    post:
+      tags: [appointment]
+      operationId: createAppointment
+      summary: 提交看房预约
+      description: 仅房源 AVAILABLE/LOCKED 且审核通过时可预约；visitTime 必须晚于当前 2 小时后。
+      x-permission: TENANT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppointmentCreateDTO'
+      responses:
+        '200':
+          description: 返回新预约 id
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: integer, format: int64 }
+
+  /appointments/mine:
+    get:
+      tags: [appointment]
+      operationId: myAppointments
+      summary: 我的预约（租客视角）
+      x-permission: TENANT
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/AppointmentStatus' } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 我的预约分页（按 visitTime 倒序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AppointmentPage'
+
+  /appointments/house/{houseId}:
+    get:
+      tags: [appointment]
+      operationId: houseAppointments
+      summary: 某房源的预约（房东视角）
+      x-permission: LANDLORD
+      parameters:
+        - { name: houseId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/AppointmentStatus' } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 该房源预约分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AppointmentPage'
+
+  /appointments/{id}/confirm:
+    put:
+      tags: [appointment]
+      operationId: confirmAppointment
+      summary: 确认预约
+      description: PENDING → CONFIRMED；仅该房源房东可操作。
+      x-permission: LANDLORD
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /appointments/{id}/cancel:
+    put:
+      tags: [appointment]
+      operationId: cancelAppointment
+      summary: 取消预约（双方）
+      description: PENDING/CONFIRMED → CANCELLED；租客或该房源房东均可发起。
+      x-permission: LOGIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  # ─────────────────────── 租赁申请 ───────────────────────
+  /applications:
+    post:
+      tags: [application]
+      operationId: createApplication
+      summary: 提交租赁申请
+      description: |
+        前置：房源 APPROVED 且 AVAILABLE；租客已绑定手机号；同一租客对同一房源
+        无进行中申请（40002）。提交成功后房源 rentStatus → LOCKED。
+      x-permission: TENANT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationCreateDTO'
+      responses:
+        '200':
+          description: 返回新申请 id
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: integer, format: int64 }
+
+  /applications/mine:
+    get:
+      tags: [application]
+      operationId: myApplications
+      summary: 我的申请（租客视角）
+      x-permission: TENANT
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ApplicationStatus' } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 我的申请分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ApplicationPage'
+
+  /applications/received:
+    get:
+      tags: [application]
+      operationId: receivedApplications
+      summary: 收到的申请（房东视角）
+      x-permission: LANDLORD
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ApplicationStatus' } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 收到的申请分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ApplicationPage'
+
+  /applications/{id}/approve:
+    put:
+      tags: [application]
+      operationId: approveApplication
+      summary: 通过申请并生成合同
+      description: |
+        申请 SUBMITTED → APPROVED；以请求体参数快照生成 PENDING_SIGN 合同；
+        房源 rentStatus → RENTED（uk_house_active 唯一索引兜底并发双签 → 40003）。
+      x-permission: LANDLORD
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationApproveDTO'
+      responses:
+        '200':
+          description: 返回生成的合同 id
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: integer, format: int64, description: 合同 id }
+
+  /applications/{id}/reject:
+    put:
+      tags: [application]
+      operationId: rejectApplication
+      summary: 驳回申请
+      description: SUBMITTED → REJECTED；房源 rentStatus LOCKED → AVAILABLE。reason 必填。
+      x-permission: LANDLORD
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  # ───────────────────────── 合同 ─────────────────────────
+  /contracts:
+    get:
+      tags: [contract]
+      operationId: listContracts
+      summary: 合同列表（按角色自动过滤）
+      description: TENANT 看自己承租的；LANDLORD 看自己出租的；ADMIN 看全部。
+      x-permission: LOGIN
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ContractStatus' } }
+        - { name: keyword, in: query, schema: { type: string }, description: 合同号/房源标题模糊匹配 }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 合同分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ContractPage'
+
+  /contracts/{id}:
+    get:
+      tags: [contract]
+      operationId: getContract
+      summary: 合同详情
+      description: 仅签约双方与 ADMIN 可见（30002）。
+      x-permission: LOGIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 合同详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ContractDetail'
+
+  /contracts/{id}/sign:
+    post:
+      tags: [contract]
+      operationId: signContract
+      summary: 签署合同
+      description: |
+        记录签署方（身份由令牌推导）：先到 → 记录单方签署时间；双方都签 →
+        status PENDING_SIGN → EFFECTIVE，active_flag=1，signTime 为后到时刻。
+      x-permission: LOGIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: |
+            data：signedBy（本方）、allSigned（是否已双方签署）。
+            双方签署完成时小程序端应提示用户切换到 LIVING 模式。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          signedBy: { $ref: '#/components/schemas/RoleType' }
+                          allSigned: { type: boolean }
+
+  /contracts/{id}/terminate:
+    post:
+      tags: [contract]
+      operationId: terminateContract
+      summary: 退租
+      description: |
+        EFFECTIVE → TERMINATED；active_flag 置 NULL，环境数据可见性随租约即时终止（30003）。
+        仅承租本人可发起；已在租约最后一周的终止免违约说明。
+      x-permission: TENANT
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /contracts/{id}/cancel:
+    post:
+      tags: [contract]
+      operationId: cancelContract
+      summary: 取消合同（待签状态）
+      description: PENDING_SIGN → CANCELLED；仅房东可操作，房源 rentStatus 回 AVAILABLE。
+      x-permission: LANDLORD
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /contracts/{id}/pdf:
+    get:
+      tags: [contract]
+      operationId: contractPdf
+      summary: 下载合同 PDF（签名 URL）
+      description: 私有读 OSS 签名 URL，有效期 10 分钟；仅签约双方与 ADMIN。
+      x-permission: LOGIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 签名 URL 与有效期
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          url: { type: string, format: uri }
+                          expiresIn: { type: integer, description: URL 有效期（秒） }
+
+  # ───────────────────────── 设备 ─────────────────────────
+  /devices:
+    get:
+      tags: [device]
+      operationId: listDevices
+      summary: 设备列表
+      x-permission: 'LANDLORD / ADMIN'
+      parameters:
+        - { name: keyword, in: query, schema: { type: string }, description: SN/名称模糊匹配 }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/DeviceStatus' } }
+        - { name: houseId, in: query, schema: { type: integer, format: int64 } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 设备分页（LANDLORD 仅名下房源，ADMIN 全部）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DevicePage'
+    post:
+      tags: [device]
+      operationId: createDevice
+      summary: 新增设备（录入 SN）
+      description: 录入设备三元组信息，status 初始 UNBOUND。仅 ADMIN。
+      x-permission: ADMIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCreateDTO'
+      responses:
+        '200':
+          description: 返回新设备 id
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: integer, format: int64 }
+
+  /devices/{id}/bind:
+    put:
+      tags: [device]
+      operationId: bindDevice
+      summary: 绑定设备到房源
+      description: 目标房源须为本人（LANDLORD）且已审核通过；设备当前须 UNBOUND/OFFLINE 且未绑其他房源（50002）。
+      x-permission: LANDLORD
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [houseId]
+              properties:
+                houseId: { type: integer, format: int64 }
+                name: { type: string, maxLength: 50, description: '如「主卧监测点」' }
+                installPosition: { type: string, maxLength: 50 }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /devices/{id}/unbind:
+    put:
+      tags: [device]
+      operationId: unbindDevice
+      summary: 解绑设备
+      x-permission: 'LANDLORD / ADMIN'
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 解绑后 status → UNBOUND，历史数据保留 house_id 便于追溯
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /devices/{id}/status:
+    get:
+      tags: [device]
+      operationId: deviceStatus
+      summary: 设备在线状态与最后上报时间
+      x-permission: LOGIN
+      description: 「房源可见者」——签约租客、房东、ADMIN 均可查看。
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 设备状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DeviceStatusData'
+
+  # ─────────────────────── 环境数据 ───────────────────────
+  /env/houses/{houseId}/realtime:
+    get:
+      tags: [env]
+      operationId: envRealtime
+      summary: 实时数据（最新一条）
+      description: |
+        「租约可见者」：生效合同租客、房东、ADMIN（EnvAccessGuard 判定，见技术方案 §9）。
+        小程序 LIVING 模式看板每 30 秒轮询本接口（WebSocket 上线前）。
+      x-permission: LOGIN
+      parameters:
+        - { name: houseId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 最新一条环境记录与阈值
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EnvRealtimeData'
+              example:
+                code: 0
+                message: ok
+                data:
+                  houseId: 301
+                  deviceId: 12
+                  deviceStatus: ONLINE
+                  lastOnlineAt: '2026-10-25T14:05:00+08:00'
+                  sensorProfile: TVOC_CO2_MOX
+                  record:
+                    temperature: 26.8
+                    humidity: 58.3
+                    hcho: 0.032
+                    tvoc: 0.420
+                    co2: 780
+                    qualityFlag: 0
+                    collectTime: '2026-10-25T14:05:00+08:00'
+                  thresholds: { hcho: 0.08, tvoc: 0.60, co2: 1000 }
+                  exceeded: []
+                traceId: a1b2c3d4e5f6
+                timestamp: 1761364800123
+
+  /env/houses/{houseId}/trend:
+    get:
+      tags: [env]
+      operationId: envTrend
+      summary: 趋势数据（按小时/天聚合）
+      description: 默认查 env_record_hour 小时表；仅「最近 24 小时」查明细表。跨度上限 31 天。
+      x-permission: LOGIN
+      parameters:
+        - { name: houseId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: granularity, in: query, schema: { type: string, enum: [hour, day], default: hour } }
+        - { $ref: '#/components/parameters/StartTime' }
+        - { $ref: '#/components/parameters/EndTime' }
+      responses:
+        '200':
+          description: 聚合后的趋势点序列
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EnvTrendData'
+              example:
+                code: 0
+                message: ok
+                data:
+                  granularity: hour
+                  list:
+                    - time: '2026-10-25T10:00:00+08:00'
+                      temperature: 26.5
+                      humidity: 57.8
+                      hcho: 0.028
+                      tvoc: 0.380
+                      co2: 720
+                      qualityFlag: 0
+                      sampleCount: 60
+                traceId: b2c3d4e5f6a7
+                timestamp: 1761364800123
+
+  /env/houses/{houseId}/summary:
+    get:
+      tags: [env]
+      operationId: envSummary
+      summary: 日/周/月统计（均值、超标时长、超标率）
+      x-permission: LOGIN
+      parameters:
+        - { name: houseId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: range, in: query, schema: { type: string, enum: [day, week, month], default: day } }
+      responses:
+        '200':
+          description: 统计汇总（租客举证页数据源）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EnvSummaryData'
+
+  /env/houses/{houseId}/export:
+    get:
+      tags: [env]
+      operationId: envExport
+      summary: 导出 CSV（举证用）
+      description: |
+        **统一响应体的例外**：本接口直接返回 text/csv 文件流
+        （Content-Disposition: attachment），跨度上限 31 天。
+      x-permission: LOGIN
+      parameters:
+        - { name: houseId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { $ref: '#/components/parameters/StartTime' }
+        - { $ref: '#/components/parameters/EndTime' }
+      responses:
+        '200':
+          description: CSV 文件流
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                collect_time,temperature,humidity,hcho,tvoc,co2,quality_flag
+                2026-10-25T14:00:00+08:00,26.5,57.8,0.028,0.380,720,0
+
+  /env/overview:
+    get:
+      tags: [env]
+      operationId: envOverview
+      summary: 多房源环境总览（监管端）
+      description: ADMIN 专属；Web「环境总览」页数据源，支持按行政区过滤。
+      x-permission: ADMIN
+      parameters:
+        - { name: district, in: query, schema: { type: string } }
+        - { name: onlyAlarm, in: query, schema: { type: boolean, default: false }, description: 仅看有未处理告警的房源 }
+      responses:
+        '200':
+          description: 全部（或过滤后）已绑定设备房源的环境概况
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EnvOverviewData'
+
+  # ─────────────────────── 设备上报 ───────────────────────
+  /ingest/env:
+    post:
+      tags: [ingest]
+      operationId: ingestEnv
+      summary: 设备 HTTP 旁路上报（HMAC 签名）
+      description: |
+        MQTT 不可用时的旁路通道。签名算法：HMAC-SHA256(secretKey,
+        deviceSn + timestamp + nonce + body)，hex 小写。
+        幂等：uk_device_collect(device_sn, collect_time) + INSERT IGNORE。
+        时间戳偏差 > 5 分钟拒绝（50004）；签名不符拒绝（50005）。
+      security: []
+      x-permission: DEVICE
+      parameters:
+        - { name: X-Device-Sn, in: header, required: true, schema: { type: string } }
+        - { name: X-Timestamp, in: header, required: true, schema: { type: integer, description: 毫秒时间戳 } }
+        - { name: X-Nonce, in: header, required: true, schema: { type: string, description: '随机串（≤32 字符）' } }
+        - { name: X-Signature, in: header, required: true, schema: { type: string, description: HMAC-SHA256 签名 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestEnvDTO'
+      responses:
+        '200':
+          description: 上报受理（含去重跳过），data 恒为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+        '401':
+          description: 签名校验失败（body.code = 50005）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  # ───────────────────────── 告警 ─────────────────────────
+  /alarms:
+    get:
+      tags: [alarm]
+      operationId: listAlarms
+      summary: 告警列表
+      description: 按数据权限过滤：租客看自己租约内的，房东看名下房源的，ADMIN 看全部。
+      x-permission: LOGIN
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/AlarmStatus' } }
+        - { name: level, in: query, schema: { $ref: '#/components/schemas/AlarmLevel' } }
+        - { name: metric, in: query, schema: { $ref: '#/components/schemas/MetricType' } }
+        - { name: houseId, in: query, schema: { type: integer, format: int64 } }
+        - { $ref: '#/components/parameters/StartTime' }
+        - { $ref: '#/components/parameters/EndTime' }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 告警分页（按 triggeredAt 倒序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AlarmPage'
+
+  /alarms/active/count:
+    get:
+      tags: [alarm]
+      operationId: activeAlarmCount
+      summary: 未处理告警数量（红点）
+      description: Web 顶栏铃铛 30 秒轮询；小程序 tabBar 红点。按数据权限过滤。
+      x-permission: LOGIN
+      responses:
+        '200':
+          description: 未处理数量
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count: { type: integer, example: 3 }
+
+  /alarms/{id}:
+    get:
+      tags: [alarm]
+      operationId: getAlarm
+      summary: 告警详情
+      x-permission: LOGIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 告警详情（含处置记录）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AlarmItem'
+
+  /alarms/{id}/handle:
+    put:
+      tags: [alarm]
+      operationId: handleAlarm
+      summary: 处置告警
+      description: ACTIVE → HANDLED；记录处置人与说明（remark 必填，如「已开窗通风、复测合格」）。
+      x-permission: 'LANDLORD / ADMIN'
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remark]
+              properties:
+                remark: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /alarms/{id}/ignore:
+    put:
+      tags: [alarm]
+      operationId: ignoreAlarm
+      summary: 忽略告警
+      description: ACTIVE → IGNORED（误报场景）；记录操作人。
+      x-permission: 'LANDLORD / ADMIN'
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remark: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  # ───────────────────────── 系统管理 ─────────────────────
+  /admin/users:
+    get:
+      tags: [admin]
+      operationId: adminListUsers
+      summary: 用户列表
+      x-permission: ADMIN
+      parameters:
+        - { name: keyword, in: query, schema: { type: string }, description: '用户名/昵称/手机号模糊匹配' }
+        - { name: role, in: query, schema: { $ref: '#/components/schemas/RoleType' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/UserStatus' } }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 用户分页（手机号脱敏，不含身份证）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminUserPage'
+
+  /admin/users/{id}/status:
+    put:
+      tags: [admin]
+      operationId: adminSetUserStatus
+      summary: 启用/禁用用户
+      description: 禁用即 token_version + 1，该用户全部令牌立即失效。
+      x-permission: ADMIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/UserStatus' }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /admin/users/{id}/role:
+    put:
+      tags: [admin]
+      operationId: adminSetUserRole
+      summary: 调整用户角色
+      description: 角色在 JWT 载荷中，调整后 token_version + 1 强制旧令牌失效。
+      x-permission: ADMIN
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: '#/components/schemas/RoleType' }
+      responses:
+        '200':
+          description: data 为 null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /admin/logs:
+    get:
+      tags: [admin]
+      operationId: adminListLogs
+      summary: 操作日志查询
+      x-permission: ADMIN
+      parameters:
+        - { name: module, in: query, schema: { type: string }, description: '如 house / contract' }
+        - { name: username, in: query, schema: { type: string } }
+        - { name: success, in: query, schema: { type: boolean } }
+        - { $ref: '#/components/parameters/StartTime' }
+        - { $ref: '#/components/parameters/EndTime' }
+        - { $ref: '#/components/parameters/PageNum' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: 操作日志分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OperationLogPage'
+
+  /admin/stats/overview:
+    get:
+      tags: [admin]
+      operationId: adminStatsOverview
+      summary: 工作台统计卡片
+      x-permission: ADMIN
+      responses:
+        '200':
+          description: 首页统计卡片数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/StatsOverviewData'
+
+  # ───────────────────────── 文件与字典 ───────────────────
+  /files/upload:
+    post:
+      tags: [file]
+      operationId: uploadFile
+      summary: 上传图片/PDF
+      description: 限制 image/*、application/pdf；单文件 ≤ 10MB（10006）。OSS 私有读，返回签名 URL 由业务模块换长期引用。
+      x-permission: LOGIN
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                type:
+                  type: string
+                  enum: [image, pdf]
+                  default: image
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          url: { type: string, format: uri }
+        '413':
+          $ref: '#/components/responses/FileTooLarge'
+
+  /dict/{type}:
+    get:
+      tags: [dict]
+      operationId: getDict
+      summary: 字典查询
+      description: 'type 取值：LAYOUT（户型）、ORIENTATION（朝向）、DECORATION（装修）、FACILITY（设施）等。结果前端缓存（app store）。'
+      security: []
+      x-permission: PUBLIC
+      parameters:
+        - { name: type, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 字典项列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/DictItem'
+
+# ═══════════════════════════ components ═══════════════════════════
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageNum:
+      name: pageNum
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+    StartTime:
+      name: startTime
+      in: query
+      schema: { type: string, format: date-time }
+      description: ISO-8601 带时区
+    EndTime:
+      name: endTime
+      in: query
+      schema: { type: string, format: date-time }
+      description: ISO-8601 带时区
+
+  responses:
+    TooManyRequests:
+      description: 限流（传输层）。业务层频控返回 HTTP 200 + 10004/20005
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ResponseEnvelope'
+          example:
+            code: 10004
+            message: 请求过于频繁，请稍后重试
+            data: null
+            traceId: 9f2c1a7b4e6d
+            timestamp: 1761364800123
+    FileTooLarge:
+      description: 文件超出大小限制（10006）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ResponseEnvelope'
+
+  schemas:
+    # ── 统一响应 ──
+    ResponseEnvelope:
+      type: object
+      description: 所有接口的统一响应体（/env/.../export 与 /contracts/{id}/pdf 的文件流除外）
+      required: [code, message, traceId, timestamp]
+      properties:
+        code:
+          type: integer
+          description: 业务码，0 成功；分段见 info.description
+          example: 0
+        message:
+          type: string
+          description: 面向用户的中文提示，可直接 toast
+          example: ok
+        data:
+          nullable: true
+          description: 业务数据；无数据为 null
+        traceId:
+          type: string
+          description: 全链路追踪 id，出错时让用户报此号定位日志
+          example: 9f2c1a7b4e6d
+        timestamp:
+          type: integer
+          format: int64
+          description: 服务端毫秒时间戳
+          example: 1761364800123
+
+    # ── 枚举（与《设计方案》§1.1 唯一对照） ──
+    AuditStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED]
+      description: 房源审核状态：待审核 / 已通过 / 已驳回
+    RentStatus:
+      type: string
+      enum: [AVAILABLE, LOCKED, RENTED, OFFLINE]
+      description: 房源租赁状态：可租 / 签约中 / 在租 / 已下架
+    ContractStatus:
+      type: string
+      enum: [DRAFT, PENDING_SIGN, EFFECTIVE, EXPIRED, TERMINATED, CANCELLED]
+      description: '合同状态：草稿 / 待签署 / 生效中 / 已到期 / 已退租 / 已取消'
+    ApplicationStatus:
+      type: string
+      enum: [SUBMITTED, APPROVED, REJECTED, CANCELLED]
+      description: 租赁申请状态：待处理 / 已通过 / 已拒绝 / 已取消
+    AppointmentStatus:
+      type: string
+      enum: [PENDING, CONFIRMED, COMPLETED, CANCELLED]
+      description: 预约状态：待确认 / 已确认 / 已完成 / 已取消
+    DeviceStatus:
+      type: string
+      enum: [ONLINE, OFFLINE, UNBOUND, FAULT]
+      description: 设备状态：在线 / 离线 / 未绑定 / 故障
+    AlarmLevel:
+      type: string
+      enum: [WARN, DANGER]
+      description: 告警等级：预警 / 严重
+    AlarmStatus:
+      type: string
+      enum: [ACTIVE, RECOVERED, HANDLED, IGNORED]
+      description: 告警状态：待处理 / 已恢复 / 已处置 / 已忽略
+    MetricType:
+      type: string
+      enum: [HCHO, TVOC, CO2, TEMPERATURE, HUMIDITY]
+      description: 告警/指标类型
+    RoleType:
+      type: string
+      enum: [TENANT, LANDLORD, ADMIN]
+      description: 角色：租客 / 房东（含中介）/ 管理员
+    UserStatus:
+      type: string
+      enum: [ACTIVE, DISABLED]
+      description: 用户状态：正常 / 禁用
+    UserMode:
+      type: string
+      enum: [SEEKING, LIVING, BOTH]
+      description: 小程序模式：找房 / 居住 / 双模式（有租约但也在找房）
+    SensorProfile:
+      type: string
+      enum: [TVOC_CO2_MOX, TVOC_CO2_MOX_ZE08]
+      description: 传感器配置：本期 TVOC-CO2 模块 / 升级后含 ZE08 甲醛
+
+    # ── 认证 ──
+    LoginDTO:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, maxLength: 50 }
+        password: { type: string, format: password, minLength: 6, maxLength: 32 }
+    WxLoginDTO:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, description: wx.login() 临时凭证 }
+        encryptedData: { type: string, description: 手机号加密数据（可选，getPhoneNumber） }
+        iv: { type: string }
+    TokenPair:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn:
+          type: integer
+          description: access token 有效期（秒）
+          example: 7200
+    LoginData:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          properties:
+            userInfo: { $ref: '#/components/schemas/UserInfo' }
+            permissions:
+              type: array
+              items: { type: string }
+              description: 按钮级权限码；ADMIN 为 ['*']
+              example: ['house:audit', 'user:disable']
+    WxLoginData:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          properties:
+            userInfo: { $ref: '#/components/schemas/UserInfo' }
+            mode: { $ref: '#/components/schemas/UserMode' }
+    UserInfo:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        username: { type: string, nullable: true, description: Web 端登录名；小程序用户为 null }
+        nickname: { type: string }
+        avatar: { type: string, nullable: true }
+        phone: { type: string, nullable: true, description: 已绑定时返回脱敏值，如 138****5678 }
+        realName: { type: string, nullable: true }
+        role: { $ref: '#/components/schemas/RoleType' }
+        orgName: { type: string, nullable: true, description: 所属机构（中介/运营单位） }
+        status: { $ref: '#/components/schemas/UserStatus' }
+    ModeData:
+      type: object
+      properties:
+        mode: { $ref: '#/components/schemas/UserMode' }
+        contracts:
+          type: array
+          description: 覆盖当前日期的生效合同（LIVING/BOTH 时非空）
+          items:
+            type: object
+            properties:
+              id: { type: integer, format: int64 }
+              contractNo: { type: string, example: HT202510250001 }
+              houseId: { type: integer, format: int64 }
+              houseTitle: { type: string, example: 阳光花园 3 栋 301 }
+              startDate: { type: string, format: date }
+              endDate: { type: string, format: date }
+
+    # ── 房源 ──
+    HouseSaveDTO:
+      type: object
+      required: [title, district, address, area, layout, rent, deposit]
+      properties:
+        title: { type: string, minLength: 2, maxLength: 100 }
+        district: { type: string, description: 行政区（字典 DISTRICT） }
+        street: { type: string }
+        address: { type: string, maxLength: 100 }
+        lat: { type: number, description: 纬度（地图找房用） }
+        lng: { type: number }
+        area: { type: number, minimum: 0, exclusiveMinimum: true, description: '面积 m²（> 0）' }
+        layout: { type: string, description: '户型，如 2-1-1（字典 LAYOUT）' }
+        floor: { type: integer, minimum: 1 }
+        totalFloor: { type: integer, minimum: 1 }
+        orientation: { type: string, description: 朝向（字典 ORIENTATION） }
+        decoration: { type: string, description: 装修（字典 DECORATION） }
+        rent: { type: number, minimum: 0, description: '月租（元）' }
+        deposit: { type: number, minimum: 0, description: '押金（元）' }
+        facilities:
+          type: array
+          items: { type: string }
+          description: 设施编码（字典 FACILITY）
+        coverUrl: { type: string, format: uri }
+        imageUrls:
+          type: array
+          items: { type: string, format: uri }
+          maxItems: 9
+        description: { type: string, maxLength: 2000 }
+        version:
+          type: integer
+          description: 乐观锁版本号（编辑时必传，来自详情接口）
+    HouseAuditDTO:
+      type: object
+      required: [auditStatus]
+      properties:
+        auditStatus:
+          type: string
+          enum: [APPROVED, REJECTED]
+        remark:
+          type: string
+          maxLength: 200
+          description: 驳回时必填，房东据此修改
+    HouseItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string, example: 阳光花园 3 栋 301 }
+        district: { type: string, example: 西湖区 }
+        address: { type: string, example: 文一西路 88 号 }
+        layout: { type: string, example: 2-1-1 }
+        area: { type: number, example: 89.5 }
+        rent: { type: number, example: 3200.00 }
+        deposit: { type: number, example: 3200.00 }
+        coverUrl: { type: string, nullable: true }
+        auditStatus: { $ref: '#/components/schemas/AuditStatus' }
+        rentStatus: { $ref: '#/components/schemas/RentStatus' }
+        deviceStatus:
+          allOf:
+            - $ref: '#/components/schemas/DeviceStatus'
+          nullable: true
+          description: 未绑定设备为 null
+        latestHcho:
+          type: number
+          nullable: true
+          description: 最新甲醛读数（mg/m³，估算值）；无设备为 null
+        hchoExceeded:
+          type: boolean
+          description: 最新读数是否超标（阈值 0.08）
+        createdAt: { type: string, format: date-time }
+    HousePage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/HouseItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+    HouseDetail:
+      allOf:
+        - $ref: '#/components/schemas/HouseItem'
+        - type: object
+          properties:
+            street: { type: string }
+            lat: { type: number }
+            lng: { type: number }
+            floor: { type: integer }
+            totalFloor: { type: integer }
+            orientation: { type: string }
+            decoration: { type: string }
+            facilities:
+              type: array
+              items: { type: string }
+            imageUrls:
+              type: array
+              items: { type: string, format: uri }
+            description: { type: string }
+            auditRemark: { type: string, nullable: true, description: 驳回原因 }
+            auditTime: { type: string, format: date-time, nullable: true }
+            landlord:
+              type: object
+              nullable: true
+              description: 仅本人/ADMIN 可见联系方式
+              properties:
+                id: { type: integer, format: int64 }
+                nickname: { type: string }
+                phone: { type: string }
+            device:
+              type: object
+              nullable: true
+              properties:
+                id: { type: integer, format: int64 }
+                name: { type: string }
+                status: { $ref: '#/components/schemas/DeviceStatus' }
+                sensorProfile: { $ref: '#/components/schemas/SensorProfile' }
+            version: { type: integer }
+    MapHouse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        rent: { type: number }
+        rentStatus: { $ref: '#/components/schemas/RentStatus' }
+
+    # ── 预约 ──
+    AppointmentCreateDTO:
+      type: object
+      required: [houseId, visitTime]
+      properties:
+        houseId: { type: integer, format: int64 }
+        visitTime:
+          type: string
+          format: date-time
+          description: 看房时间，必须晚于当前时间 2 小时后
+        remark: { type: string, maxLength: 200 }
+    AppointmentItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        houseId: { type: integer, format: int64 }
+        houseTitle: { type: string }
+        coverUrl: { type: string, nullable: true }
+        tenantId: { type: integer, format: int64 }
+        tenantNickname: { type: string }
+        tenantPhone: { type: string, description: '脱敏，如 138****5678' }
+        visitTime: { type: string, format: date-time }
+        remark: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        createdAt: { type: string, format: date-time }
+    AppointmentPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/AppointmentItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+
+    # ── 租赁申请 ──
+    ApplicationCreateDTO:
+      type: object
+      required: [houseId, startDate, endDate, contactPhone]
+      properties:
+        houseId: { type: integer, format: int64 }
+        startDate: { type: string, format: date, description: 起租日，不早于明天 }
+        endDate: { type: string, format: date }
+        contactPhone: { type: string, pattern: '^1\d{10}$' }
+        remark: { type: string, maxLength: 200 }
+    ApplicationApproveDTO:
+      type: object
+      required: [startDate, endDate]
+      properties:
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        rent: { type: number, description: '不传则取房源当前租金' }
+        deposit: { type: number, description: '不传则取房源当前押金' }
+    ApplicationItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        houseId: { type: integer, format: int64 }
+        houseTitle: { type: string }
+        coverUrl: { type: string, nullable: true }
+        tenantId: { type: integer, format: int64 }
+        tenantNickname: { type: string }
+        tenantPhone: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        remark: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+        contractId:
+          type: integer
+          format: int64
+          nullable: true
+          description: APPROVED 时关联的合同 id
+        createdAt: { type: string, format: date-time }
+    ApplicationPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/ApplicationItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+
+    # ── 合同 ──
+    ContractItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        contractNo: { type: string, example: HT202510250001 }
+        houseId: { type: integer, format: int64 }
+        houseTitle: { type: string }
+        coverUrl: { type: string, nullable: true }
+        tenantId: { type: integer, format: int64 }
+        tenantNickname: { type: string }
+        landlordId: { type: integer, format: int64 }
+        landlordNickname: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        rent: { type: number, description: 签约时快照 }
+        deposit: { type: number }
+        status: { $ref: '#/components/schemas/ContractStatus' }
+        signTime: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    ContractPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/ContractItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+    ContractDetail:
+      allOf:
+        - $ref: '#/components/schemas/ContractItem'
+        - type: object
+          properties:
+            tenantSignTime: { type: string, format: date-time, nullable: true }
+            landlordSignTime: { type: string, format: date-time, nullable: true }
+            terminateTime: { type: string, format: date-time, nullable: true }
+            terminateReason: { type: string, nullable: true }
+            pdfUrl: { type: string, nullable: true, description: 需另调 /pdf 换签名 URL }
+            version: { type: integer }
+
+    # ── 设备 ──
+    DeviceCreateDTO:
+      type: object
+      required: [deviceSn]
+      properties:
+        deviceSn: { type: string, maxLength: 64, description: 与 IoTDA device_id 对应 }
+        name: { type: string, maxLength: 50 }
+        secretKey: { type: string, maxLength: 64, description: HTTP 旁路 HMAC 密钥（加密存储） }
+        sensorProfile:
+          allOf:
+            - $ref: '#/components/schemas/SensorProfile'
+          default: TVOC_CO2_MOX
+    DeviceItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        deviceSn: { type: string }
+        name: { type: string, nullable: true }
+        installPosition: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/DeviceStatus' }
+        sensorProfile: { $ref: '#/components/schemas/SensorProfile' }
+        houseId: { type: integer, format: int64, nullable: true }
+        houseTitle: { type: string, nullable: true }
+        lastOnlineAt: { type: string, format: date-time, nullable: true }
+        firmwareVersion: { type: string, nullable: true }
+    DevicePage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/DeviceItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+    DeviceStatusData:
+      type: object
+      properties:
+        deviceId: { type: integer, format: int64 }
+        deviceSn: { type: string }
+        status: { $ref: '#/components/schemas/DeviceStatus' }
+        lastOnlineAt: { type: string, format: date-time, nullable: true }
+        firmwareVersion: { type: string, nullable: true }
+
+    # ── 环境数据 ──
+    EnvRecord:
+      type: object
+      description: 单条环境读数；hcho 为 TVOC 反算估算值（sensorProfile=TVOC_CO2_MOX）
+      properties:
+        temperature: { type: number, example: 26.8, description: '℃' }
+        humidity: { type: number, example: 58.3, description: '%RH' }
+        hcho: { type: number, example: 0.032, description: 'mg/m³（估算）' }
+        tvoc: { type: number, example: 0.420, description: 'mg/m³' }
+        co2: { type: integer, example: 780, description: ppm }
+        qualityFlag:
+          type: integer
+          enum: [0, 1, 2, 3, 4, 5, 6]
+          description: '0 正常 / 1 补传 / 2 越界 / 3 跳变 / 4 传感器故障 / 5 数据陈旧 / 6 预热中'
+        collectTime: { type: string, format: date-time, description: 采集时间（设备侧时钟） }
+    EnvRealtimeData:
+      type: object
+      properties:
+        houseId: { type: integer, format: int64 }
+        deviceId: { type: integer, format: int64, nullable: true }
+        deviceStatus:
+          allOf:
+            - $ref: '#/components/schemas/DeviceStatus'
+          nullable: true
+        lastOnlineAt: { type: string, format: date-time, nullable: true }
+        sensorProfile: { $ref: '#/components/schemas/SensorProfile' }
+        record:
+          allOf:
+            - $ref: '#/components/schemas/EnvRecord'
+          nullable: true
+          description: 无数据 / 预热中为 null
+        thresholds:
+          type: object
+          description: 判定阈值（服务端下发，前端不硬编码）
+          properties:
+            hcho: { type: number, example: 0.08 }
+            tvoc: { type: number, example: 0.60 }
+            co2: { type: integer, example: 1000 }
+        exceeded:
+          type: array
+          items: { $ref: '#/components/schemas/MetricType' }
+          description: 当前超标的指标列表
+    EnvTrendPoint:
+      type: object
+      properties:
+        time: { type: string, format: date-time }
+        temperature: { type: number }
+        humidity: { type: number }
+        hcho: { type: number, nullable: true }
+        tvoc: { type: number, nullable: true }
+        co2: { type: integer, nullable: true }
+        qualityFlag: { type: integer }
+        sampleCount:
+          type: integer
+          description: 聚合周期内原始样本数（判断可信度）
+    EnvTrendData:
+      type: object
+      properties:
+        granularity: { type: string, enum: [hour, day] }
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/EnvTrendPoint' }
+    EnvSummaryData:
+      type: object
+      properties:
+        range: { type: string, enum: [day, week, month] }
+        sampleCount: { type: integer, description: 纳入统计的样本数 }
+        metrics:
+          type: object
+          description: 气体指标含超标统计；温湿度仅均值与极值
+          properties:
+            hcho:
+              type: object
+              properties:
+                avg: { type: number, description: 均值 mg/m³ }
+                max: { type: number }
+                exceedMinutes: { type: integer, description: 超标时长（分钟） }
+                exceedRate: { type: number, description: '超标率（0~100，百分数保留 1 位）' }
+            tvoc:
+              type: object
+              properties:
+                avg: { type: number }
+                max: { type: number }
+                exceedMinutes: { type: integer }
+                exceedRate: { type: number }
+            co2:
+              type: object
+              properties:
+                avg: { type: integer }
+                max: { type: integer }
+                exceedMinutes: { type: integer }
+                exceedRate: { type: number }
+            temperature:
+              type: object
+              properties:
+                avg: { type: number }
+                min: { type: number }
+                max: { type: number }
+            humidity:
+              type: object
+              properties:
+                avg: { type: number }
+                min: { type: number }
+                max: { type: number }
+    EnvOverviewItem:
+      type: object
+      properties:
+        houseId: { type: integer, format: int64 }
+        houseTitle: { type: string }
+        district: { type: string }
+        deviceStatus: { $ref: '#/components/schemas/DeviceStatus' }
+        lastCollectTime: { type: string, format: date-time, nullable: true }
+        latest:
+          allOf:
+            - $ref: '#/components/schemas/EnvRecord'
+          nullable: true
+        exceeded24h: { type: integer, description: 近 24h 超标样本数 }
+        activeAlarmCount: { type: integer, description: 未处理告警数 }
+    EnvOverviewData:
+      type: object
+      properties:
+        updatedAt: { type: string, format: date-time }
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/EnvOverviewItem' }
+
+    # ── 设备上报 ──
+    IngestEnvDTO:
+      type: object
+      required: [timestamp, data]
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+          description: 采集毫秒时间戳；与 X-Timestamp 偏差 > 5 分钟拒绝（50004）
+        data:
+          type: object
+          required: [temperature, humidity, tvoc, co2]
+          properties:
+            temperature: { type: number }
+            humidity: { type: number }
+            hcho: { type: number, description: 本期为 TVOC 反算值，可由服务端计算 }
+            tvoc: { type: number }
+            co2: { type: integer }
+            qualityFlag: { type: integer, enum: [0, 1, 2, 3, 4, 5, 6] }
+            firmwareVersion: { type: string }
+
+    # ── 告警 ──
+    AlarmItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        houseId: { type: integer, format: int64 }
+        houseTitle: { type: string }
+        deviceId: { type: integer, format: int64 }
+        deviceName: { type: string, nullable: true }
+        metric: { $ref: '#/components/schemas/MetricType' }
+        value: { type: number, description: 触发值 }
+        threshold: { type: number, description: 阈值 }
+        level: { $ref: '#/components/schemas/AlarmLevel' }
+        status: { $ref: '#/components/schemas/AlarmStatus' }
+        triggeredAt: { type: string, format: date-time }
+        recoveredAt: { type: string, format: date-time, nullable: true }
+        handledBy: { type: string, nullable: true, description: 处置人用户名 }
+        handleRemark: { type: string, nullable: true }
+    AlarmPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/AlarmItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+
+    # ── 系统管理 ──
+    AdminUserItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        username: { type: string, nullable: true }
+        nickname: { type: string }
+        phone: { type: string, nullable: true, description: 脱敏 }
+        realName: { type: string, nullable: true }
+        role: { $ref: '#/components/schemas/RoleType' }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        orgName: { type: string, nullable: true }
+        lastLoginAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    AdminUserPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/AdminUserItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+    OperationLogItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        traceId: { type: string }
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        role: { $ref: '#/components/schemas/RoleType' }
+        module: { type: string, example: house }
+        action: { type: string, example: 审核房源 }
+        method: { type: string, example: POST }
+        uri: { type: string, example: '/api/v1/houses/301/audit' }
+        resultCode: { type: integer, example: 0 }
+        ip: { type: string }
+        costMs: { type: integer }
+        success: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    OperationLogPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/OperationLogItem' }
+        total: { type: integer }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        pages: { type: integer }
+    StatsOverviewData:
+      type: object
+      properties:
+        userTotal: { type: integer, description: 用户总数 }
+        houseTotal: { type: integer }
+        houseAvailable: { type: integer, description: 可租房源 }
+        housePendingAudit: { type: integer, description: 待审核房源（工作台待办） }
+        contractEffective: { type: integer, description: 生效合同数 }
+        deviceOnline: { type: integer }
+        deviceTotal: { type: integer }
+        alarmActive: { type: integer, description: 未处理告警（红点） }
+        newUsers7d: { type: integer, description: 近 7 日新增用户 }
+    DictItem:
+      type: object
+      properties:
+        label: { type: string, example: '2-1-1' }
+        value: { type: string, example: '2-1-1' }
+        sort: { type: integer }

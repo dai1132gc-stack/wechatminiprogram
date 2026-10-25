@@ -1,0 +1,42 @@
+<view class="page">
+  <view class="search-bar">
+    <input
+      class="search-input"
+      placeholder="搜索房源 / 地址"
+      value="{{keyword}}"
+      confirm-type="search"
+      bindinput="onSearchInput"
+      bindconfirm="onSearch"
+    />
+    <text class="search-btn" bindtap="onSearch">搜索</text>
+  </view>
+
+  <view wx:if="{{houses.length === 0 && !loading}}" class="empty">
+    {{keyword ? '无匹配结果，换个关键词试试' : '暂无可租房源'}}
+  </view>
+
+  <view
+    wx:for="{{houses}}"
+    wx:key="id"
+    class="card house-card"
+    data-id="{{item.id}}"
+    bindtap="goDetail"
+  >
+    <view class="house-cover">🏠</view>
+    <view class="house-info">
+      <view class="card-title">{{item.title}}</view>
+      <view class="text-sub">{{item.district}} · {{item.layout}} · {{item.areaText}}</view>
+      <view class="house-meta">
+        <text class="tag {{item.rentStatus === 'AVAILABLE' ? 'tag-success' : 'tag-gray'}}">
+          {{item.rentStatusText}}
+        </text>
+        <text class="house-rent">{{item.rentText}}<text class="text-sub">/月</text></text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading-mask">加载中…</view>
+  <view wx:elif="{{finished && houses.length > 0}}" class="text-sub" style="text-align:center;padding:20rpx 0">
+    — 共 {{houses.length}} 套 —
+  </view>
+</view>

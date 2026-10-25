@@ -1,0 +1,15 @@
+/* Element Plus 变量覆盖（全局主色对齐品牌蓝） */
+:root {
+  --el-color-primary: #185fa5;
+  --el-color-primary-light-3: #4d84ba;
+  --el-color-primary-light-5: #7ba5cd;
+  --el-color-primary-light-7: #aec9e2;
+  --el-color-primary-light-8: #c9dcec;
+  --el-color-primary-light-9: #e4eff8;
+  --el-color-primary-dark-2: #124c85;
+}
+
+/* 布局微调 */
+.el-container.layout-root {
+  height: 100%;
+}

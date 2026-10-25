@@ -1,0 +1,6 @@
+<view class="page">
+  <view wx:if="{{items.length === 0}}" class="empty">
+    <view>暂无看房预约</view>
+    <view class="text-sub" style="margin-top:8rpx">W3 接入 /appointments/mine 后展示列表</view>
+  </view>
+</view>
