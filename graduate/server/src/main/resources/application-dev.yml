@@ -22,5 +22,6 @@ rental:
     access-ttl-minutes: 120
     refresh-ttl-days: 7
   wechat:
-    appid: ${WX_APPID:wx-test-appid}
-    secret: ${WX_SECRET:wx-test-secret}
+    # 用户提供的小程序测试号（dev 默认值；正式环境必须经环境变量注入）
+    appid: ${WX_APPID:wx0ebf901e27616902}
+    secret: ${WX_SECRET:b51edd3d9e1939ea8ca1b4779104b16b}

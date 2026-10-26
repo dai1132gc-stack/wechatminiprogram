@@ -10,6 +10,9 @@ public interface UserService {
     /** 模式判定：存在覆盖当前日期的生效合同 → BOTH（可找房可居住），否则 SEEKING（§11） */
     CurrentMode getCurrentMode();
 
+    /** 任意用户的模式判定（wx-login 签发时使用，无 SecurityContext） */
+    CurrentMode getModeByUserId(long userId);
+
     record ContractBrief(Long id, String contractNo, Long houseId, String houseTitle,
                          String startDate, String endDate) {
     }

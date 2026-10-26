@@ -31,13 +31,13 @@ public class UserServiceImpl implements UserService {
         return UserInfo.from(user);
     }
 
-    /**
-     * 模式由关系推导，不由角色硬编码（§9）：
-     * 存在覆盖当前日期的生效合同 → BOTH（找房/居住两套入口都可用），否则 SEEKING。
-     */
     @Override
     public CurrentMode getCurrentMode() {
-        long userId = SecurityUtils.getUserId();
+        return getModeByUserId(SecurityUtils.getUserId());
+    }
+
+    @Override
+    public CurrentMode getModeByUserId(long userId) {
         LocalDate today = LocalDate.now();
         List<Contract> contracts = contractMapper.selectList(
                 new LambdaQueryWrapper<Contract>()

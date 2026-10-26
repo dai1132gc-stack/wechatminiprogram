@@ -16,8 +16,10 @@
 # 0) 依赖：MySQL(3306, root/123456) + Redis(6379，C:/Users/HONOR/dev-tools/redis，需先启动)
 # 1) 后端（首次构建用 C:/Users/HONOR/dev-tools/apache-maven-3.9.16/bin/mvn）
 cd server && mvn spring-boot:run -Dspring-boot.run.profiles=dev   # → :8080/api/v1
-# 2) Web 管理后台（auth 走代理到 8080，house/stat 仍 Mock 待 W3+ 替换）
+# 2) Web 管理后台（auth + 房源模块走真实后端，仅 stat 仍 Mock 待 W6）
 cd web && npm install && npm run dev    # → http://127.0.0.1:5180  admin/admin123 或 landlord1/123456
+# 3) 小程序：微信开发者工具导入 wechat/（AppID 已配测试号 wx0ebf901e27616902），
+#    本地设置勾「不校验合法域名」；W3 起默认连真实后端（useMock:false，离线演示改回 true）
 
 # 小程序：微信开发者工具导入 wechat/ 目录（AppID 已填 touristappid 测试号）
 # config/env.js 中 useMock=true，无需后端

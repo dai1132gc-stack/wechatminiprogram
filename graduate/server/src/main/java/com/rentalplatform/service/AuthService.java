@@ -15,4 +15,7 @@ public interface AuthService {
 
     /** 登出：access 拉黑 + refresh 删除 */
     void logout(String accessToken, String refreshToken);
+
+    /** 小程序微信登录：code 换 openid，用户不存在自动注册（role=TENANT，§5.2） */
+    LoginVO wxLogin(String code);
 }

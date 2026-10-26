@@ -6,7 +6,7 @@ const envs = {
   // 开发者工具 / 真机调试
   develop: {
     apiBase: 'http://127.0.0.1:8080/api/v1',
-    useMock: true,
+    useMock: false, // W3 起接真实后端（本机需先启动 server:8080）；离线演示改回 true
   },
   // 体验版
   trial: {

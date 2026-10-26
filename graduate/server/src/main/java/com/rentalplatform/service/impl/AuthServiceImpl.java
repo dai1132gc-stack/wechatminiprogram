@@ -13,6 +13,7 @@ import com.rentalplatform.model.vo.UserInfo;
 import com.rentalplatform.security.LoginUser;
 import com.rentalplatform.security.TokenService;
 import com.rentalplatform.service.AuthService;
+import com.rentalplatform.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -46,10 +47,13 @@ public class AuthServiceImpl implements AuthService {
     private final TokenService tokenService;
     private final UserMapper userMapper;
     private final StringRedisTemplate redis;
+    private final UserService userService;
+    private final com.rentalplatform.integration.wechat.WxApiClient wxApiClient;
 
     @Override
     public LoginVO login(LoginDTO dto, String ip) {
-        String failKey = RedisKey.LOGIN_FAIL + dto.getUsername();
+        // §5.2：同一 username+IP 连续 5 次失败锁 15 分钟；只按账号计数会被恶意锁定他人账号
+        String failKey = RedisKey.LOGIN_FAIL + dto.getUsername() + ":" + ip;
         String fails = redis.opsForValue().get(failKey);
         if (fails != null && Integer.parseInt(fails) >= MAX_FAIL) {
             throw new AuthException(ResultCode.LOGIN_TOO_FREQUENT);
@@ -102,6 +106,41 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void logout(String accessToken, String refreshToken) {
         tokenService.logout(accessToken, refreshToken);
+    }
+
+    /**
+     * 小程序登录（§5.2）：code2session → openid → 查 sys_user，
+     * 不存在自动注册（role=TENANT，status=ACTIVE）；签发双令牌并返回模式。
+     */
+    @Override
+    public LoginVO wxLogin(String code) {
+        var session = wxApiClient.code2Session(code);
+        SysUser user = userMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getOpenid, session.openid()));
+        if (user == null) {
+            user = new SysUser();
+            user.setOpenid(session.openid());
+            user.setUnionid(session.unionid());
+            user.setNickname("微信用户_" + session.openid().substring(session.openid().length() - 4));
+            user.setRole("TENANT");
+            user.setStatus("ACTIVE");
+            user.setTokenVersion(0);
+            userMapper.insert(user);
+            log.info("小程序自动注册 userId={} openid={}", user.getId(), session.openid());
+        }
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new AuthException(ResultCode.ACCOUNT_DISABLED);
+        }
+        var issued = tokenService.issue(user.getId(), user.getRole(), user.getTokenVersion(), "wx-miniprogram");
+        var mode = userService.getModeByUserId(user.getId());
+        return LoginVO.builder()
+                .accessToken(issued.accessToken())
+                .refreshToken(issued.refreshToken())
+                .expiresIn(issued.expiresIn())
+                .userInfo(UserInfo.from(user))
+                .permissions(ROLE_PERMISSIONS.getOrDefault(user.getRole(), new String[]{}))
+                .mode(mode.mode())
+                .build();
     }
 
     private void recordFailure(String failKey) {

@@ -33,3 +33,9 @@ INSERT INTO device (id, device_sn, house_id, name, install_position, status, sen
 -- 演示合同：302 在租（active_flag=1，唯一索引生效中）
 INSERT INTO contract (id, contract_no, house_id, tenant_id, landlord_id, start_date, end_date, rent, deposit, status, active_flag, tenant_sign_time, landlord_sign_time, sign_time) VALUES
 (501, 'HT202609010001', 302, 10086, 2, '2026-09-01', '2027-08-31', 2600.00, 2600.00, 'EFFECTIVE', 1, NOW(3), NOW(3), NOW(3));
+
+-- 演示环境读数：301 正常、306 超标（hcho > 0.08，供列表红色分支演示）
+INSERT INTO env_record (device_id, device_sn, house_id, contract_id, temperature, humidity, hcho, tvoc, co2, quality_flag, sample_count, collect_time)
+VALUES
+(12,'ENV-SN-0012',301,501,26.80,58.30,0.032,0.420,780,0,60,NOW(3)),
+(13,'ENV-SN-0013',306,NULL,24.60,61.20,0.095,0.510,860,0,60,NOW(3));

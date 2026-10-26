@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.rentalplatform.mapper.EnvRecordMapper">
+
+    <!-- 每房源最新一条：自连接取 MAX(collect_time)，命中 idx_house_time -->
+    <select id="selectLatestByHouseIds" resultType="com.rentalplatform.model.entity.EnvRecord">
+        SELECT e.*
+        FROM env_record e
+        INNER JOIN (
+            SELECT house_id, MAX(collect_time) AS max_time
+            FROM env_record
+            WHERE house_id IN
+            <foreach collection="houseIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            GROUP BY house_id
+        ) m ON e.house_id = m.house_id AND e.collect_time = m.max_time
+    </select>
+</mapper>

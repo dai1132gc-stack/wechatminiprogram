@@ -16,7 +16,8 @@ public final class RedisKey {
     public static final String BLACKLIST = "auth:blacklist:";
     /** 令牌版本：auth:ver:{userId}，改密/改角色/禁用时 +1 */
     public static final String TOKEN_VERSION = "auth:ver:";
-    /** 登录失败计数：auth:fail:{username}，5 次锁 15 分钟 */
+    /** 登录失败计数：auth:fail:{username}:{ip}（§5.2 按 username+IP 计数，
+     *  避免他人恶意输错 5 次锁定账号本人），5 次锁 15 分钟 */
     public static final String LOGIN_FAIL = "auth:fail:";
     /** 用户 → 可见房源集合缓存（权限缓存，租约变更时失效） */
     public static final String HOUSE_VISIBLE = "perm:house:visible:";

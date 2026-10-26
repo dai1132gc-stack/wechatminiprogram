@@ -14,7 +14,10 @@ Spring Boot 3.3 + Java 21 + MyBatis-Plus + MySQL 8 + Redis 7（选型依据见�
   SecurityFilterChain + JwtAuthenticationFilter + TokenService（双令牌轮换 + 30 秒幂等宽限 +
   Redis 白名单/黑名单 + token_version 即时失效）+ 登录防爆破（5 次锁 15 分钟）
   已验证：登录/刷新/宽限重放/登出拉黑/版本失效/20005 锁定 全部通过
-- ⏳ W3+：controller / service / mapper / state / guard 按 openapi.yaml 逐模块实现
+- ✅ W3：TraceIdFilter（信封/响应头/日志三处串联）+ 防爆破按 username+IP + 微信登录真实化
+  （jscode2session，测试号已配）+ 房源模块全套（公开列表含环境列 join、详情可见性、
+  发布/编辑乐观锁+回审、审核流转、上下架状态机），Web 房源列表/详情/审核页已接真数据
+- ⏳ W4+：预约/申请/合同状态机、@DataScope、设备绑定
 
 ## 契约唯一来源
 

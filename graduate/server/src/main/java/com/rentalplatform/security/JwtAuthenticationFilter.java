@@ -22,7 +22,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 import static com.rentalplatform.common.constant.SecurityConstants.TOKEN_PREFIX;
-import static com.rentalplatform.common.constant.SecurityConstants.WHITELIST;
+import static com.rentalplatform.common.constant.SecurityConstants.SKIP_JWT;
 
 /**
  * 解析 access token → 校验黑名单与 token_version → 构建 Authentication。
@@ -42,7 +42,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        for (String pattern : WHITELIST) {
+        for (String pattern : SKIP_JWT) {
             if (new AntPathRequestMatcher(pattern).matches(request)) {
                 return true;
             }

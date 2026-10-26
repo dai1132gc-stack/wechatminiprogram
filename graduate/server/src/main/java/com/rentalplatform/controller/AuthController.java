@@ -31,6 +31,12 @@ public class AuthController {
         return R.ok(authService.login(dto, IpUtils.clientIp(request)));
     }
 
+    @Operation(summary = "小程序微信登录（code 换 openid，自动注册）")
+    @PostMapping("/wx-login")
+    public R<LoginVO> wxLogin(@RequestBody @Valid com.rentalplatform.model.dto.WxLoginDTO dto) {
+        return R.ok(authService.wxLogin(dto.getCode()));
+    }
+
     @Operation(summary = "刷新令牌（一次性轮换 + 30 秒幂等宽限）")
     @PostMapping("/refresh")
     public R<TokenPair> refresh(@RequestBody @Valid RefreshDTO dto) {
